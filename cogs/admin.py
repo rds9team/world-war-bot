@@ -20,9 +20,9 @@ class AdminCog(commands.Cog):
             conn.commit()
             
         try:
-            await ch1.send("ここは **世界1** の専用チャンネルです。\n`/command` で使い方を確認し、ここから世界大戦を始めましょう！")
-            await ch2.send("ここは **世界2** の専用チャンネルです。\n`/command` で使い方を確認し、ここから世界大戦を始めましょう！")
-            await ch3.send("ここは **世界3** の専用チャンネルです。\n`/command` で使い方を確認し、ここから世界大戦を始めましょう！")
+            await ch1.send("ここは **世界1** の専用チャンネルです。\nまず `/start` で国を選んで建国し、`/command` で世界征服を始めましょう！")
+            await ch2.send("ここは **世界2** の専用チャンネルです。\nまず `/start` で国を選んで建国し、`/command` で世界征服を始めましょう！")
+            await ch3.send("ここは **世界3** の専用チャンネルです。\nまず `/start` で国を選んで建国し、`/command` で世界征服を始めましょう！")
         except:
             pass
 
@@ -33,10 +33,23 @@ class AdminCog(commands.Cog):
         )
         embed.add_field(name="📁 作成されたカテゴリ", value="`戦争bot`", inline=False)
         embed.add_field(name="💬 作成されたチャンネル (3つ)", value=f"{ch1.mention} (世界1用)\n{ch2.mention} (世界2用)\n{ch3.mention} (世界3用)", inline=False)
-        embed.add_field(name="🔔 通知チャンネル", value=f"{ch1.mention} に設定されました。\n※`/op reboot_setting` で後から変更可能です。", inline=False)
-        embed.set_footer(text="各チャンネルでコマンドを入力してゲームを始めましょう！")
+        embed.add_field(name="🔔 通知チャンネル", value=f"{ch1.mention} に設定されました。\n※`/op_reboot_setting` で後から変更可能です。", inline=False)
+        embed.set_footer(text="各チャンネルで /start を入力して建国しましょう！")
         
         await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="op_npc", description="反乱軍(NPC/CPU)の自律侵攻システムのON/OFF切替")
+    @app_commands.choices(mode=[app_commands.Choice(name="有効(ON)", value=1), app_commands.Choice(name="無効(OFF)", value=0)])
+    @is_slash_op_or_admin()
+    async def cmd_npc(self, interaction: discord.Interaction, mode: app_commands.Choice[int]):
+        await safe_defer(interaction)
+        guild_id = str(interaction.guild_id)
+        with get_db_connection() as conn:
+            c = conn.cursor()
+            c.execute("INSERT OR IGNORE INTO server_channels (guild_id) VALUES (?)", (guild_id,))
+            c.execute("UPDATE server_channels SET npc_enabled=? WHERE guild_id=?", (mode.value, guild_id))
+            conn.commit()
+        await interaction.followup.send(f"[設定] 反乱軍(NPC)の侵攻システムを **{'ON (有効)' if mode.value==1 else 'OFF (無効)'}** に変更しました。")
 
     @app_commands.command(name="op_adj", description="隣接遠征ペナルティ(未隣接時コストアップ)のON/OFF切替")
     @is_slash_op_or_admin()

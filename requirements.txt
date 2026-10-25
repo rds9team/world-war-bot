@@ -3,4 +3,3 @@ python-dotenv
 pandas
 numpy
 Pillow
-supabase

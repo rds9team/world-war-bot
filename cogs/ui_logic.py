@@ -265,14 +265,16 @@ class HelpView(discord.ui.View):
         embed = discord.Embed(title="全世界戦争Bot ガイドブック", color=0x3498db)
         
         if page_id == "basic":
-            embed.description = "**基本ルールと資源**\nこのBotは国を奪い合い、世界の覇権を握るシミュレーションゲームです。"
-            embed.add_field(name="定時給付", value="毎日(7:00 / 19:00 JST)に基本給(1000G)・税収・石油配給があります。維持費(領土数×25L)も引かれます。", inline=False)
-            embed.add_field(name="労働と資源", value="`/work` を使うと資金とオイルを稼げます。序盤はこれを回しましょう。\n資金が尽きたら `/war_bonds` で国庫から5000G借りられます(給付から天引き)。", inline=False)
+            embed.description = "**🔰 ゲームの始め方＆基本ルール**\n国を奪い合い、世界の覇権を握るシミュレーションゲームです。"
+            embed.add_field(name="1️⃣ まずは建国 (/start)", value="`/start` で好きな国（日本やアメリカ等）を本拠地として選び、**建国祝賀ボーナス（資金+石油）**を受け取りましょう！", inline=False)
+            embed.add_field(name="2️⃣ かんたん操作 (/command)", value="`/command` を開くと**国家司令部ダッシュボード**が展開され、ボタン操作で労働・防衛・出撃がすべて完結します！", inline=False)
+            embed.add_field(name="3️⃣ ソロでも遊べる反乱軍システム", value="定期的にマップ上の空き地を「🚩 反乱軍(CPU)」が占拠します。撃退すると**討伐ボーナス資金(+500 Gold)**を獲得できます！", inline=False)
+            embed.add_field(name="4️⃣ 定時給付と資源", value="毎日(7:00 / 19:00 JST)に基本給(1000G)・税収・石油配給があります。\n資金が尽きたら `/war_bonds` で国庫から5000G借りられます(給付から天引き)。", inline=False)
             
         elif page_id == "war":
             embed.description = "**戦争と内政**"
-            embed.add_field(name="侵攻作戦", value="`/attack` で他国や空き地を攻めます。**入力した資金がそのまま消費**されます。\n宣戦布告なしの奇襲や、遠い国への攻撃は、実質的な攻撃力がペナルティで減少します。", inline=False)
-            embed.add_field(name="防衛と大国ボーナス", value="`/defend` で領土の防衛力を上げます。\n**領土を3つ以上持つ大国**は、防衛費が割引(0.9倍)され、より効率的に国を守ることができます。", inline=False)
+            embed.add_field(name="侵攻作戦", value="`/command` の「⚔️ 侵攻」または `/attack` で他国・反乱軍・空き地を攻めます。**入力した資金が部隊の戦力**になります。\n宣戦布告なしの奇襲や、遠い国への攻撃は、実質的な攻撃力がペナルティで減少します。", inline=False)
+            embed.add_field(name="防衛と大国ボーナス", value="`/defend` または `/command` の「🛡️ 防衛」で領土の防衛力を上げます。\n**領土を3つ以上持つ大国**は、防衛費が割引(0.9倍)され、より効率的に国を守ることができます。", inline=False)
             
         elif page_id == "diplomacy":
             embed.description = "**外交と貿易**"
@@ -282,12 +284,12 @@ class HelpView(discord.ui.View):
         elif page_id == "system":
             embed.description = "**システムとアップデート**"
             embed.add_field(name="バージョン一覧", value="`/version` : 閲覧可能なアップデート一覧（最新10件）を確認できます。", inline=False)
-            embed.add_field(name="アプデ詳細確認", value="`/update` : 最新のアップデート情報を表示します。\n`/update [バージョン]` : 指定した過去バージョン（例: `/update v1.0`）の詳細を表示します。", inline=False)
+            embed.add_field(name="アプデ詳細確認", value="`/update` : 最新のアップデート情報を表示します。\n`/update [バージョン]` : 指定した過去バージョンの詳細を表示します。", inline=False)
             embed.add_field(name="個人設定", value="`/user_setting` : 確認ダイアログのON/OFFなど、各種表示設定を変更できます。", inline=False)
 
         elif page_id == "admin":
             embed.description = "**管理者向け機能**"
-            embed.add_field(name="OPコマンド", value="初めに `/op setup` で専用チャンネルを一括作成してください。\nその他の設定もすべて `/op` から始まるコマンドで操作可能です。", inline=False)
+            embed.add_field(name="初期セットアップ", value="初めに `/op_setup` で専用チャンネルを一括作成してください。\nその他の設定もすべて `/op_` から始まるコマンドで操作可能です。", inline=False)
             
         return embed
 
@@ -311,22 +313,253 @@ class HelpView(discord.ui.View):
     async def btn_admin(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(embed=self.generate_embed("admin"), view=self)
 
+RECOMMENDED_STARTER_COUNTRIES = [
+    ("JPN", "🇯🇵 日本 (JPN)", "アジアの島国。高い初期収益と守りやすい防衛地形"),
+    ("USA", "🇺🇸 アメリカ (USA)", "巨大な経済力と高収益を誇る超大国"),
+    ("GBR", "🇬🇧 イギリス (GBR)", "ヨーロッパの海洋国家。防衛しやすい島国"),
+    ("FRA", "🇫🇷 フランス (FRA)", "欧州の中心に位置し、隣接国が多い好立地"),
+    ("DEU", "🇩🇪 ドイツ (DEU)", "欧州の工業大国。内陸の要所"),
+    ("AUS", "🇦🇺 オーストラリア (AUS)", "南半球の海洋孤島。他国から侵略されにくい"),
+    ("BRA", "🇧🇷 ブラジル (BRA)", "南米の覇者。広大な領土と安定した収益"),
+    ("IND", "🇮🇳 インド (IND)", "アジアの成長拠点。高い人口と経済力"),
+    ("KOR", "🇰🇷 韓国 (KOR)", "東アジアの要衝。日本・中国に隣接"),
+    ("EGY", "🇪🇬 エジプト (EGY)", "中東・アフリカを結ぶ交通の要衝"),
+]
+
+class StartCountrySelect(discord.ui.Select):
+    def __init__(self, world_id: int):
+        self.world_id = world_id
+        options = [
+            discord.SelectOption(label=label, value=code, description=desc[:100])
+            for code, label, desc in RECOMMENDED_STARTER_COUNTRIES
+        ]
+        super().__init__(placeholder="🚩 あなたの最初の領土（首都）を選択してください...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        await safe_defer(interaction, ephemeral=True)
+        guild_id, user_id, user_name = str(interaction.guild_id), str(interaction.user.id), interaction.user.display_name
+        chosen_code = self.values[0]
+
+        with get_db_connection() as conn:
+            c = conn.cursor()
+            check_and_create_user(c, guild_id, self.world_id, user_id, user_name)
+            
+            c.execute("SELECT owner_id FROM territories WHERE guild_id=? AND world_id=? AND iso_alpha=?", (guild_id, self.world_id, chosen_code))
+            t_row = c.fetchone()
+            
+            if t_row and t_row[0] != "NPC_REBELS" and t_row[0] != user_id:
+                return await interaction.followup.send(f"[エラー] **{chosen_code}** は既に他のプレイヤーが支配しています！別の国を選択してください。", ephemeral=True)
+
+            c.execute("INSERT OR REPLACE INTO territories (guild_id, world_id, iso_alpha, owner_id, defense) VALUES (?, ?, ?, ?, ?)",
+                      (guild_id, self.world_id, chosen_code, user_id, 300))
+            
+            c.execute("UPDATE players SET gold=gold+2000, oil=oil+5000, main_country=?, tutorial_done=1 WHERE guild_id=? AND world_id=? AND user_id=?",
+                      (chosen_code, guild_id, self.world_id, user_id))
+            
+            add_world_log(guild_id, self.world_id, f"🎉 新国家誕生！ {user_name} が 【{chosen_code}】 を本拠地として建国しました！")
+            add_trophy(guild_id, self.world_id, user_id, "新進気鋭の征服者")
+            conn.commit()
+
+        embed = discord.Embed(
+            title="🎉 建国完了！ 新たな歴史の始まりです",
+            description=f"おめでとうございます！ **{user_name}** の本拠地として **【{chosen_code}】** が正式に認められました！\n\n"
+                        "💰 **建国祝賀金**: `+2,000 Gold`\n"
+                        "🛢️ **備蓄石油**: `+5,000 L`\n"
+                        "🛡️ **初期防衛力**: `300`\n\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "**【次のステップ】**\n"
+                        "1. `/command` を入力して**国家司令部（ダッシュボード）**を開きましょう！\n"
+                        "2. ボタン操作で労働・防衛・出撃を試してみましょう！",
+            color=0x2ecc71
+        )
+        await interaction.followup.send(content=get_promo_and_tip(), embed=embed, ephemeral=True)
+
+class StartCountryView(discord.ui.View):
+    def __init__(self, world_id: int):
+        super().__init__(timeout=180)
+        self.add_item(StartCountrySelect(world_id))
+
+class AttackCandidateSelect(discord.ui.Select):
+    def __init__(self, candidates: list[tuple[str, str, str]], active_world: int):
+        self.active_world = active_world
+        options = [
+            discord.SelectOption(label=f"🎯 {code}", value=code, description=f"{owner_info} (防衛:{defense})")
+            for code, owner_info, defense in candidates[:25]
+        ]
+        super().__init__(placeholder="⚔️ 侵攻目標の国を選択してください...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        target_code = self.values[0]
+        await interaction.response.send_modal(TroopModal(target_code, self.active_world))
+
+class AttackCandidateView(discord.ui.View):
+    def __init__(self, candidates: list[tuple[str, str, str]], active_world: int):
+        super().__init__(timeout=90)
+        self.add_item(AttackCandidateSelect(candidates, active_world))
+
+def build_dashboard_embed(guild_id: str, world_id: int, user_id: str, user_name: str) -> tuple[discord.Embed, list[str]]:
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        check_and_create_user(c, guild_id, world_id, user_id, user_name)
+        c.execute("SELECT gold, oil, main_country, debt, tech_level, title FROM players WHERE guild_id=? AND world_id=? AND user_id=?", (guild_id, world_id, user_id))
+        p_row = c.fetchone()
+        gold, oil, main_country, debt, tech_level, title = p_row if p_row else (1000, 8000, "未設定", 0, 1, "未設定")
+
+        c.execute("SELECT iso_alpha, defense FROM territories WHERE guild_id=? AND world_id=? AND owner_id=?", (guild_id, world_id, user_id))
+        territories = c.fetchall()
+        my_lands = [t[0] for t in territories]
+        total_def = sum(t[1] for t in territories)
+
+    embed = discord.Embed(
+        title=f"👑 国家司令部ダッシュボード [世界#{world_id}]",
+        description=f"国家指導者: **{user_name}** | 称号: `{title}`",
+        color=0x3498db
+    )
+    lands_str = ", ".join(my_lands) if my_lands else "なし（※下のボタンまたは /start で建国可能）"
+    embed.add_field(name="🏰 領土状況", value=f"**本拠地:** {main_country} | **領土数:** {len(my_lands)} カ国\n**総防衛力:** {total_def:,}\n`{lands_str[:250]}`", inline=False)
+    embed.add_field(name="💰 国庫・資源", value=f"**資金:** {gold:,} Gold\n**石油:** {oil:,} L\n**戦債(借金):** {debt:,} Gold", inline=True)
+    embed.add_field(name="🔬 国家機能", value=f"**テックLv:** {tech_level}\n**定時給付:** 7:00 / 19:00", inline=True)
+
+    advise = []
+    if not my_lands:
+        advise.append("🚩 **まずは建国！** `/start` で本拠地を選び、建国祝賀金を受け取りましょう！")
+    else:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cd_key = (guild_id, world_id, user_id)
+        can_work = True
+        if cd_key in work_cooldowns:
+            elapsed = (now - work_cooldowns[cd_key]).total_seconds()
+            if elapsed < 3600: can_work = False
+        if can_work:
+            advise.append("💼 **労働の準備完了！** 「💼 労働」ボタンで資金と石油を即補給できます！")
+        if total_def < 200 * len(my_lands):
+            advise.append("🛡️ **防衛が手薄です！** 「🛡️ 防衛」ボタンで守りを固めましょう！")
+        if gold >= 1000:
+            advise.append("⚔️ **進軍可能！** 「⚔️ 侵攻」ボタンから隣接する国を攻めて領土を広げましょう！")
+
+    if not advise:
+        advise.append("🕊️ 平和な統治が続いています。技術研究や他国との外交を進めましょう！")
+
+    embed.add_field(name="💡 指導者への助言（おすすめアクション）", value="\n".join(advise), inline=False)
+    embed.set_footer(text="下のボタンを押すだけで簡単に操作できます！")
+    return embed, my_lands
+
 class CommandGUIView(discord.ui.View):
-    def __init__(self): super().__init__(timeout=None)
-    @discord.ui.select(placeholder="メニューからかんたん操作を選択...", options=[
-        discord.SelectOption(label="ステータス確認", value="status", description="自分の資金・石油や総兵力をチェック"),
-        discord.SelectOption(label="侵攻作戦の立案 (Attack)", value="attack", description="指定した国へ攻撃を仕掛ける"),
-        discord.SelectOption(label="外交手続き (GUI)", value="gui", description="宣戦布告や同盟の申請/破棄を行う"),
-        discord.SelectOption(label="領土の管理", value="country_management", description="所有している領土の所有権放棄メニュー"),
+    def __init__(self, world_id: int = 1, my_lands: list[str] = None):
+        super().__init__(timeout=None)
+        self.world_id = world_id
+        self.my_lands = my_lands or []
+
+    @discord.ui.button(label="⚔️ 侵攻作戦 (Attack)", style=discord.ButtonStyle.danger, row=0)
+    async def btn_attack(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild_id, user_id = str(interaction.guild_id), str(interaction.user.id)
+        candidates = []
+        with get_db_connection() as conn:
+            c = conn.cursor()
+            target_pool = set()
+            for land in self.my_lands:
+                target_pool.update(ADJACENCY_GRAPH.get(land, set()))
+            target_pool.difference_update(self.my_lands)
+            
+            if not target_pool:
+                c.execute("SELECT iso_alpha FROM territories WHERE guild_id=? AND world_id=? AND owner_id='NPC_REBELS' LIMIT 10", (guild_id, self.world_id))
+                target_pool.update(r[0] for r in c.fetchall())
+                target_pool.update(["JPN", "KOR", "CHN", "USA", "GBR", "FRA", "DEU", "IND", "AUS", "BRA"])
+                target_pool.difference_update(self.my_lands)
+
+            for code in list(target_pool)[:25]:
+                c.execute("SELECT t.defense, p.user_name, t.owner_id FROM territories t LEFT JOIN players p ON t.owner_id=p.user_id AND t.world_id=p.world_id AND t.guild_id=p.guild_id WHERE t.guild_id=? AND t.world_id=? AND t.iso_alpha=?", (guild_id, self.world_id, code))
+                row = c.fetchone()
+                if row:
+                    owner_text = "🚩 反乱軍(CPU)" if row[2] == "NPC_REBELS" else f"統治者: {row[1]}"
+                    candidates.append((code, owner_text, str(row[0])))
+                else:
+                    candidates.append((code, "空き地 (未占領)", str(DEFAULT_DEFENSE)))
+
+        if not candidates:
+            return await interaction.response.send_modal(AttackTargetModal())
+        
+        await interaction.response.send_message("侵攻する目標国を選択してください（選択後、投入資金を設定します）:", view=AttackCandidateView(candidates, self.world_id), ephemeral=True)
+
+    @discord.ui.button(label="🛡️ 防衛強化 (Defend)", style=discord.ButtonStyle.success, row=0)
+    async def btn_defend(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild_id, user_id = str(interaction.guild_id), str(interaction.user.id)
+        with get_db_connection() as conn:
+            c = conn.cursor()
+            c.execute("SELECT iso_alpha, defense FROM territories WHERE guild_id=? AND world_id=? AND owner_id=?", (guild_id, self.world_id, user_id))
+            territories = c.fetchall()
+        if not territories:
+            return await interaction.response.send_message("[エラー] 所有している領土がありません。まずは `/start` で建国するか、侵攻して領土を獲得しましょう！", ephemeral=True)
+        await interaction.response.send_message("防衛費を投資する領土を選択してください:", view=DefendView(territories, self.world_id), ephemeral=True)
+
+    @discord.ui.button(label="💼 労働 (Work)", style=discord.ButtonStyle.primary, row=0)
+    async def btn_work(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await safe_defer(interaction, ephemeral=True)
+        guild_id, user_id = str(interaction.guild_id), str(interaction.user.id)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        key = (guild_id, self.world_id, user_id)
+        if key in work_cooldowns:
+            elapsed = (now - work_cooldowns[key]).total_seconds()
+            if elapsed < 3600:
+                minutes, seconds = divmod(int(3600 - elapsed), 60)
+                return await interaction.followup.send(f"労働の準備中です。あと **{minutes}分 {seconds}秒** お待ちください。", ephemeral=True)
+                
+        work_cooldowns[key] = now
+        earned_gold = random.randint(300, 800)
+        
+        with get_db_connection() as conn:
+            c = conn.cursor()
+            check_and_create_user(c, guild_id, self.world_id, user_id, interaction.user.display_name)
+            c.execute("SELECT 1 FROM un_members WHERE guild_id=? AND world_id=? AND user_id=?", (guild_id, self.world_id, user_id))
+            is_un = c.fetchone()
+            
+            if is_un:
+                earned_gold = int(earned_gold * 1.5)
+                earned_oil = random.randint(75, 225)
+                bonus_msg = f"\n[国連ボーナス] 追加資金と石油(**{earned_oil} L**)を採掘しました！"
+            else:
+                earned_oil = random.randint(50, 150)
+                bonus_msg = f"\n[通常採掘] 石油(**{earned_oil} L**)を採掘しました！"
+                
+            c.execute("UPDATE players SET gold=gold+?, oil=oil+? WHERE guild_id=? AND world_id=? AND user_id=?", (earned_gold, earned_oil, guild_id, self.world_id, user_id))
+            c.execute("SELECT gold, oil FROM players WHERE guild_id=? AND world_id=? AND user_id=?", (guild_id, self.world_id, user_id))
+            current_gold, current_oil = c.fetchone()
+            conn.commit()
+            
+        msg = f"🎉 労働完了！ [世界#{self.world_id}] で `{earned_gold}` Gold を稼ぎました！{bonus_msg}\n現在の所持金: **{current_gold:,} Gold** / 石油: **{current_oil:,} L**"
+        await interaction.followup.send(msg + get_promo_and_tip(), ephemeral=True)
+
+    @discord.ui.button(label="🗺️ 戦況マップ (Map)", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_map(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await safe_defer(interaction, ephemeral=True)
+        guild_id = str(interaction.guild_id)
+        map_file, occupied_lands = await asyncio.to_thread(_generate_current_map_sync, guild_id, self.world_id)
+        embed = discord.Embed(title=f"🗺️ 世界情勢マップ [世界#{self.world_id}]", color=0x3498db)
+        owner_dict = {}
+        for iso, _, _, _, u_name in occupied_lands: owner_dict.setdefault(u_name, []).append(iso)
+        desc = "\n".join([f"**{u_name}**: {', '.join(lands)}" for u_name, lands in owner_dict.items()])
+        embed.description = "【現在の支配状況】\n" + (desc[:3500] if desc else "支配されている領土はありません。")
+        if map_file: await interaction.followup.send(content=get_promo_and_tip(), embed=embed.set_image(url="attachment://war_map.png"), file=map_file, ephemeral=True)
+        else: await interaction.followup.send(content=get_promo_and_tip(), embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="📖 遊び方ガイド (Help)", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_help(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await safe_defer(interaction, ephemeral=True)
+        view = HelpView()
+        await interaction.followup.send(embed=view.generate_embed("basic"), view=view, ephemeral=True)
+
+    @discord.ui.select(placeholder="その他の上級アクション・外交メニュー...", row=2, options=[
         discord.SelectOption(label="国家への投資 (Invest)", value="invest", description="資金を投資して国力を高める"),
         discord.SelectOption(label="技術研究 (Research)", value="research", description="技術レベルを上げ、工作の成功率をアップ"),
         discord.SelectOption(label="スパイ派遣 (Spy)", value="spy", description="他国へ潜入し、情報を抜き取る"),
         discord.SelectOption(label="プロパガンダ (Propaganda)", value="propaganda", description="他国の防衛力を低下させる"),
+        discord.SelectOption(label="外交手続き (GUI)", value="gui", description="宣戦布告や同盟の申請/破棄を行う"),
+        discord.SelectOption(label="領土の管理", value="country_management", description="所有している領土の所有権放棄メニュー"),
+        discord.SelectOption(label="詳細ステータス", value="status", description="詳細な国家データを確認"),
     ])
     async def select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
         val = select.values[0]
-        if val == "attack": await interaction.response.send_modal(AttackTargetModal())
-        elif val == "invest": await interaction.response.send_modal(InvestModal())
+        if val == "invest": await interaction.response.send_modal(InvestModal())
         elif val == "spy": await interaction.response.send_modal(SpyModal())
         elif val == "propaganda": await interaction.response.send_modal(PropagandaModal())
         else:
@@ -335,6 +568,36 @@ class CommandGUIView(discord.ui.View):
             elif val == "gui": await run_diplomacy(interaction)
             elif val == "country_management": await run_country_management(interaction)
             elif val == "research": await run_research(interaction)
+
+async def run_start_wizard(interaction: discord.Interaction):
+    await safe_defer(interaction, ephemeral=True)
+    world_id = await ensure_world_context(interaction)
+    if world_id == 0: return
+    guild_id, user_id, user_name = str(interaction.guild_id), str(interaction.user.id), interaction.user.display_name
+    with get_db_connection() as conn:
+        c = conn.cursor()
+        check_and_create_user(c, guild_id, world_id, user_id, user_name)
+        c.execute("SELECT iso_alpha FROM territories WHERE guild_id=? AND world_id=? AND owner_id=?", (guild_id, world_id, user_id))
+        lands = [r[0] for r in c.fetchall()]
+        if lands:
+            embed = discord.Embed(
+                title="🏰 すでに建国済みです！",
+                description=f"あなたは既に **{len(lands)}** カ国（本拠地・領土: {', '.join(lands)}）を統治しています！\n\n"
+                            "国家の運営や他国への侵攻は `/command` からワンタップで行えます！",
+                color=0x3498db
+            )
+            return await interaction.followup.send(embed=embed, ephemeral=True)
+
+    embed = discord.Embed(
+        title="🚩 国家建国ウィザード [世界#" + str(world_id) + "]",
+        description="世界の覇権を目指す新たな国家指導者よ、ようこそ！\n\n"
+                    "下のメニューから、あなたの**本拠地（首都）となる国**を1つ選択してください。\n"
+                    "建国と同時に、国庫に**祝賀ボーナス資金と石油**が支給されます！",
+        color=0x2ecc71
+    )
+    embed.add_field(name="🎁 建国ボーナス", value="・資金: **+2,000 Gold**\n・石油: **+5,000 L**\n・首都防衛力: **300人**", inline=False)
+    await interaction.followup.send(embed=embed, view=StartCountryView(world_id), ephemeral=True)
+
 
 class AttackConfirmView(discord.ui.View):
     def __init__(self, target_code: str, active_world: int, total_cost: int, actual_power: int, warning_text: str):
@@ -498,10 +761,13 @@ async def execute_attack_logic(interaction: discord.Interaction, target_code: st
         
         if atk_roll > def_roll:
             surviving_troops = max(10, actual_power - int(actual_power * random.uniform(0.1, 0.4)))
-            c.execute("UPDATE players SET gold=?, oil=? WHERE guild_id=? AND world_id=? AND user_id=?", (current_gold - total_cost, current_oil - oil_cost, guild_id, world_id, user_id))
+            npc_bonus = 500 if defender_id == "NPC_REBELS" else 0
+            new_gold_val = max(0, current_gold - total_cost + npc_bonus)
+            c.execute("UPDATE players SET gold=?, oil=? WHERE guild_id=? AND world_id=? AND user_id=?", (new_gold_val, current_oil - oil_cost, guild_id, world_id, user_id))
             c.execute("INSERT OR REPLACE INTO territories (guild_id, world_id, iso_alpha, owner_id, defense) VALUES (?, ?, ?, ?, ?)", (guild_id, world_id, target_code, user_id, surviving_troops))
             embed.color = 0x2ecc71
-            embed.description = f"**作戦成功！ {user_name} が {target_code} を制圧しました！**\n\n作戦タイプ: {war_status_text}{distance_text}\n消費資金: **{total_cost}** Gold\n実質攻撃力: **{actual_power}** (ペナルティ適用後)\n残存配置兵力: {surviving_troops}人"
+            bonus_str = "\n🎉 **反乱軍を撃退！ 討伐ボーナスとして +500 Gold を獲得しました！**" if npc_bonus > 0 else ""
+            embed.description = f"**作戦成功！ {user_name} が {target_code} を制圧しました！**\n\n作戦タイプ: {war_status_text}{distance_text}\n消費資金: **{total_cost}** Gold\n実質攻撃力: **{actual_power}** (ペナルティ適用後)\n残存配置兵力: {surviving_troops}人{bonus_str}"
             add_world_log(guild_id, world_id, f"{user_name} が {target_code} への侵攻作戦に成功し、制圧しました。")
             add_trophy(guild_id, world_id, user_id, "新進気鋭の征服者")
         else:

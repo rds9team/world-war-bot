@@ -18,7 +18,8 @@ from cogs.ui_logic import (
     work_cooldowns, OilImportView, CommandGUIView, HelpView, AttackTargetModal,
     DefendView, execute_defend_logic, run_status, run_diplomacy, run_targets,
     run_country_management, run_country_status, run_attack, run_un_list, run_camp_list,
-    my_countries_autocomplete, run_version, run_update, StatsView, PeaceTreatyView
+    my_countries_autocomplete, run_version, run_update, StatsView, PeaceTreatyView,
+    run_start_wizard, build_dashboard_embed
 )
 
 class CommandsCog(commands.Cog):
@@ -459,7 +460,7 @@ class CommandsCog(commands.Cog):
     @app_commands.command(name="join", description="公式サポートサーバーへの参加リンクを表示します")
     async def cmd_join(self, interaction: discord.Interaction):
         await safe_defer(interaction)
-        await interaction.followup.send("公式サポートサーバーへの参加はこちら！\nバグ報告や質問、他プレイヤーとの交流にどうぞ。\nhttps://discord.gg/3vFrHqamgv")
+        await interaction.followup.send("公式サポートサーバーへの参加はこちら！\nバグ報告や質問、他プレイヤーとの交流にどうぞ。\nhttps://discord.gg/km2VDjCNpE")
 
     @app_commands.command(name="world_setting", description="自分が行動する世界を手動設定します（チャンネル未設定サーバー用）")
     @app_commands.choices(world_num=[app_commands.Choice(name="世界 #1", value=1), app_commands.Choice(name="世界 #2", value=2), app_commands.Choice(name="世界 #3", value=3)])
@@ -471,16 +472,19 @@ class CommandsCog(commands.Cog):
             conn.commit()
         await interaction.followup.send(f"[設定] あなたのアクティブな世界を **世界 #{world_num.value}** に設定しました。", ephemeral=True)
 
-    @app_commands.command(name="command", description="Botの全コマンド一覧をカテゴリー別に出力し、直接実行可能なGUIを展開します")
+    @app_commands.command(name="start", description="【初心者向け】好きな国（首都）を選んで自分の国家を建国します")
+    async def cmd_start(self, interaction: discord.Interaction):
+        await run_start_wizard(interaction)
+
+    @app_commands.command(name="command", description="国家司令部ダッシュボードを開き、ボタン操作でゲームをプレイします")
     async def cmd_command(self, interaction: discord.Interaction):
         await safe_defer(interaction, ephemeral=True)
-        embed = discord.Embed(title="全コマンド一覧 (カテゴリー別)", color=0x3498db)
-        embed.add_field(name="運営・設定 (管理者用)", value="`/op setup` : 初期設定\n`/op reset` : リセット\n※全て `/op` から実行可能", inline=False)
-        embed.add_field(name="メインゲーム・侵略", value="`/attack` : 攻撃\n`/targets` : ターゲット確認\n`/gui` : 外交パネル\n`/peace` : 不戦協定", inline=False)
-        embed.add_field(name="内政・機能管理", value="`/defend` : 防衛費投資\n`/withdraw` : 資金還元\n`/reallocate` : 防衛力移動\n`/user_setting` : 確認ダイアログ等設定", inline=False)
-        embed.add_field(name="経済・貿易・情報", value="`/work` : 労働\n`/war_bonds` : 戦債発行\n`/status` : ステータス確認\n`/import_oil` : オイル購入\n`/convert_resource` : システム交換", inline=False)
-        embed.add_field(name="陣営・国連・称号", value="`/un list` 等 : 国連関連\n`/camp list` 等 : 陣営関連\n`/trophy show` 等 : 称号関連", inline=False)
-        await interaction.followup.send(embed=embed, view=CommandGUIView(), ephemeral=True)
+        world_id = await ensure_world_context(interaction)
+        if world_id == 0: return
+        guild_id, user_id, user_name = str(interaction.guild_id), str(interaction.user.id), interaction.user.display_name
+        embed, my_lands = build_dashboard_embed(guild_id, world_id, user_id, user_name)
+        view = CommandGUIView(world_id, my_lands)
+        await interaction.followup.send(content=get_promo_and_tip(), embed=embed, view=view, ephemeral=True)
     @app_commands.command(name="version", description="閲覧可能なアップデートのバージョン一覧を最新から10件表示します")
     async def cmd_version(self, interaction: discord.Interaction):
         await run_version(interaction)

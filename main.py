@@ -14,8 +14,10 @@ import traceback
 import asyncio
 import logging
 import colorsys
+import time
 from dotenv import load_dotenv
 import aiohttp
+from aiohttp import web
 
 # ==============================================================================
 # 初期設定と環境変数
@@ -26,7 +28,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com").rstrip("/")
 DB_FILE = os.getenv("DB_FILE", "war_game_worlds.db")
 BACKUP_DIR = os.getenv("BACKUP_DIR", "db_backups")
-PROMO_LINK = "https://discord.gg/dsGhNNJfzc"
+PROMO_LINK = "https://discord.gg/km2VDjCNpE"
 TIPS_FILE = "tips.txt"
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -154,6 +156,9 @@ def init_db():
             add_column("players", "wins", "INTEGER DEFAULT 0")
             add_column("players", "losses", "INTEGER DEFAULT 0")
             add_column("players", "trophy_count", "INTEGER DEFAULT 0")
+            add_column("players", "is_npc", "INTEGER DEFAULT 0")
+            add_column("players", "tutorial_done", "INTEGER DEFAULT 0")
+            add_column("server_channels", "npc_enabled", "INTEGER DEFAULT 1")
             add_column("server_channels", "oil_enabled_w1", "INTEGER DEFAULT 1")
             add_column("server_channels", "oil_enabled_w2", "INTEGER DEFAULT 1")
             add_column("server_channels", "oil_enabled_w3", "INTEGER DEFAULT 1")
@@ -163,6 +168,18 @@ def init_db():
             add_column("user_settings", "confirm_attack", "INTEGER DEFAULT 1")
             conn.commit()
     except Exception as e: logger.error(f"DB初期化エラー: {e}")
+
+NPC_USER_ID = "NPC_REBELS"
+NPC_NAME = "🚩 反乱軍 (CPU)"
+NPC_COLOR = (220, 20, 60)
+
+def ensure_npc_exists(cursor, guild_id: str, world_id: int):
+    cursor.execute("SELECT 1 FROM players WHERE guild_id = ? AND world_id = ? AND user_id = ?", (guild_id, world_id, NPC_USER_ID))
+    if not cursor.fetchone():
+        r, g, b = NPC_COLOR
+        cursor.execute("INSERT INTO players (guild_id, world_id, user_id, user_name, short_name, r, g, b, gold, oil, is_npc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 999999, 999999, 1)", 
+                       (guild_id, world_id, NPC_USER_ID, NPC_NAME, "反乱軍", r, g, b))
+
 
 async def safe_defer(interaction: discord.Interaction, ephemeral: bool = False):
     try:
@@ -350,6 +367,8 @@ from discord.ext import tasks
 # ==============================================================================
 # Botクラスの定義とバックグラウンドタスク
 # ==============================================================================
+API_PORT = int(os.getenv("API_PORT", "8084"))
+
 class WarBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.all()
@@ -359,108 +378,144 @@ class WarBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents, help_command=None)
         self.command_count = 0
         self.status_index = 0
+        self.start_time = time.time()
+
+    async def _start_web_server(self):
+        app = web.Application()
+
+        async def root_handler(request):
+            return web.json_response({
+                "service": "World War Bot API",
+                "version": "v6.0",
+                "status": "online",
+                "bot_name": self.user.name if self.user else "World War Bot",
+                "guilds": len(self.guilds),
+                "users": sum(g.member_count or 0 for g in self.guilds),
+                "latency_ms": round(self.latency * 1000, 1) if self.latency else 0,
+                "uptime_seconds": int(time.time() - self.start_time),
+            }, headers={"Access-Control-Allow-Origin": "*"})
+
+        async def stats_handler(request):
+            guild_count = len(self.guilds)
+            user_count = sum(g.member_count or 0 for g in self.guilds)
+            t_count, p_count = 0, 0
+            try:
+                with get_db_connection() as conn:
+                    c = conn.cursor()
+                    c.execute("SELECT COUNT(*) FROM territories")
+                    t_count = c.fetchone()[0]
+                    c.execute("SELECT COUNT(*) FROM players WHERE is_npc=0")
+                    p_count = c.fetchone()[0]
+            except Exception: pass
+
+            return web.json_response({
+                "status": "online",
+                "version": "v6.0",
+                "bot_name": self.user.name if self.user else "World War Bot",
+                "guilds": guild_count,
+                "users": user_count,
+                "latency_ms": round(self.latency * 1000, 1) if self.latency else 0,
+                "command_count": self.command_count,
+                "uptime_seconds": int(time.time() - self.start_time),
+                "total_territories": t_count,
+                "total_players": p_count,
+            }, headers={"Access-Control-Allow-Origin": "*"})
+
+        async def health_handler(request):
+            return web.json_response({
+                "status": "ok",
+                "latency_ms": round(self.latency * 1000, 1) if self.latency else 0,
+                "guilds": len(self.guilds),
+                "users": sum(g.member_count or 0 for g in self.guilds),
+                "uptime_seconds": int(time.time() - self.start_time),
+            }, headers={"Access-Control-Allow-Origin": "*"})
+
+        async def map_handler(request):
+            guild_id = request.query.get("guild_id")
+            world_id = int(request.query.get("world_id", 1))
+            if not guild_id:
+                return web.Response(text="guild_id is required", status=400, headers={"Access-Control-Allow-Origin": "*"})
+            file_obj, _ = await asyncio.to_thread(_generate_current_map_sync, str(guild_id), world_id)
+            if not file_obj:
+                return web.Response(text="Map generation failed", status=500, headers={"Access-Control-Allow-Origin": "*"})
+            return web.Response(body=file_obj.fp.read(), content_type="image/png", headers={"Access-Control-Allow-Origin": "*"})
+
+        app.router.add_get("/", root_handler)
+        app.router.add_get("/health", health_handler)
+        app.router.add_get("/api/health", health_handler)
+        app.router.add_get("/stats", stats_handler)
+        app.router.add_get("/api/stats", stats_handler)
+        app.router.add_get("/api/map", map_handler)
+
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", API_PORT)
+        await site.start()
+        logger.info(f"Web API サーバーがポート {API_PORT} で起動しました。")
 
     async def setup_hook(self):
         init_db()
         await self.load_extension("cogs.commands")
-        await self.load_extension("cogs.admin")  # ここでコマンド群を読み込み
+        await self.load_extension("cogs.admin")
         await self.tree.sync()
         logger.info("スラッシュコマンドを同期しました。")
+        asyncio.create_task(self._start_web_server())
         if not scheduled_tasks.is_running(): 
             scheduled_tasks.start()
         if not change_status_task.is_running():
             change_status_task.start()
-        if not sync_supabase_task.is_running():
-            sync_supabase_task.start()
+        if not npc_activity_task.is_running():
+            npc_activity_task.start()
 
 bot = WarBot()
-
-from supabase import create_client, Client
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
-
-
-@tasks.loop(minutes=1)
-async def sync_supabase_task():
-    if not supabase_client or not bot.is_ready(): return
-    try:
-        # 1. DBからデータを一瞬でメモリに吸い出して即クローズ（ロック防止）
-        worlds_payload = []
-        with get_db_connection() as conn:
-            c = conn.cursor()
-            c.execute("SELECT DISTINCT guild_id, world_id FROM territories")
-            active_worlds = c.fetchall()
-            
-            for guild_id, w_id in active_worlds:
-                # 領土ランキング
-                c.execute("SELECT owner_id, COUNT(*) as c FROM territories WHERE guild_id=? AND world_id=? GROUP BY owner_id ORDER BY c DESC LIMIT 10", (guild_id, w_id))
-                t_ranks = c.fetchall()
-                territory_leaderboard = []
-                for uid, count in t_ranks:
-                    c.execute("SELECT user_name, title, main_country FROM players WHERE user_id=? AND guild_id=? AND world_id=?", (uid, guild_id, w_id))
-                    p = c.fetchone()
-                    if p:
-                        territory_leaderboard.append({"name": "Secret Player", "title": p[1], "country": p[2], "territories": count})
-                
-                # 資金ランキング
-                c.execute("SELECT user_name, gold FROM players WHERE guild_id=? AND world_id=? ORDER BY gold DESC LIMIT 10", (guild_id, w_id))
-                gold_leaderboard = [{"name": "Secret Player", "gold": r[1]} for r in c.fetchall()]
-                
-                # 陣営(Camp)の勢力(領土数)
-                c.execute("SELECT camp_name, founder_id FROM camps WHERE guild_id=? AND world_id=?", (guild_id, w_id))
-                camps = c.fetchall()
-                camp_shares = []
-                for c_name, _ in camps:
-                    c.execute("SELECT user_id FROM camp_members WHERE camp_name=? AND guild_id=? AND world_id=?", (c_name, guild_id, w_id))
-                    members = [m[0] for m in c.fetchall()]
-                    if members:
-                        placeholders = ','.join('?' * len(members))
-                        c.execute(f"SELECT COUNT(*) FROM territories WHERE guild_id=? AND world_id=? AND owner_id IN ({placeholders})", [guild_id, w_id] + members)
-                        camp_territories = c.fetchone()[0]
-                        camp_shares.append({"camp_name": c_name, "territories": camp_territories})
-                camp_shares.sort(key=lambda x: x["territories"], reverse=True)
-
-                data = {
-                    "territory_ranking": territory_leaderboard,
-                    "gold_ranking": gold_leaderboard,
-                    "camp_shares": camp_shares
-                }
-                worlds_payload.append((guild_id, w_id, data))
-
-        # 2. DBクローズ後に、画像生成とSupabaseアップロードを実行
-        for guild_id, w_id, data in worlds_payload:
-            try:
-                # マップ画像生成（別スレッド）
-                file_obj, _ = await asyncio.to_thread(_generate_current_map_sync, guild_id, w_id)
-                if file_obj:
-                    file_bytes = file_obj.fp.read()
-                    def _upload_img():
-                        supabase_client.storage.from_("maps").upload(f"map_{guild_id}_{w_id}.png", file_bytes, file_options={"upsert": "true", "contentType": "image/png"})
-                    await asyncio.to_thread(_upload_img)
-            except Exception as img_err:
-                logger.error(f"マップ画像アップロードエラー ({guild_id}_{w_id}): {img_err}")
-
-            # DBレコードの更新
-            now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
-            def _upload_db():
-                record_id = f"{guild_id}_{w_id}"
-                supabase_client.table("world_status").upsert({
-                    "id": record_id, 
-                    "world_id": w_id, 
-                    "updated_at": now_iso, 
-                    "data": data,
-                    "map_url": f"{SUPABASE_URL}/storage/v1/object/public/maps/map_{guild_id}_{w_id}.png"
-                }).execute()
-            await asyncio.to_thread(_upload_db)
-            await asyncio.sleep(0.5)
-
-    except Exception as e:
-        logger.error(f"Supabase同期エラー: {e}")
 
 @bot.event
 async def on_app_command_completion(interaction: discord.Interaction, command):
     bot.command_count += 1
+
+@tasks.loop(minutes=30)
+async def npc_activity_task():
+    try:
+        if not bot.is_ready(): return
+        with get_db_connection() as conn:
+            c = conn.cursor()
+            for guild in bot.guilds:
+                guild_id = str(guild.id)
+                c.execute("SELECT npc_enabled, notify_ch, notify_enabled FROM server_channels WHERE guild_id = ?", (guild_id,))
+                row = c.fetchone()
+                if row and row[0] == 0: continue
+                
+                notify_ch_id = row[1] if row and row[2] == 1 else None
+                
+                for world_id in [1, 2, 3]:
+                    ensure_npc_exists(c, guild_id, world_id)
+                    c.execute("SELECT iso_alpha, owner_id FROM territories WHERE guild_id = ? AND world_id = ?", (guild_id, world_id))
+                    existing = dict(c.fetchall())
+                    
+                    empty_lands = [code for code in VALID_CODES if code not in existing]
+                    if empty_lands and random.random() < 0.4:
+                        target_code = random.choice(empty_lands)
+                        c.execute("INSERT INTO territories (guild_id, world_id, iso_alpha, owner_id, defense) VALUES (?, ?, ?, ?, ?)",
+                                  (guild_id, world_id, target_code, NPC_USER_ID, 150))
+                        now_str = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                        event_text = f"🚩 反乱軍(CPU)が未占領の【{target_code}】を奇襲占拠しました！奪還してボーナスを獲得しましょう！"
+                        c.execute("INSERT INTO world_logs (guild_id, world_id, timestamp, event_text) VALUES (?, ?, ?, ?)",
+                                  (guild_id, world_id, now_str, event_text))
+                        
+                        if notify_ch_id:
+                            ch = guild.get_channel(int(notify_ch_id))
+                            if ch:
+                                try:
+                                    embed = discord.Embed(
+                                        title=f"⚠️ 反乱軍の侵攻警告 [世界#{world_id}]",
+                                        description=f"🚩 反乱軍(CPU)が **{target_code}** を占拠しました！\n`/command` または `/attack {target_code}` で奪還して世界を平和に導きましょう！",
+                                        color=0xe74c3c
+                                    )
+                                    await ch.send(embed=embed)
+                                except Exception: pass
+            conn.commit()
+    except Exception as e:
+        logger.error(f"NPC自律行動エラー: {e}")
 
 @tasks.loop(seconds=10)
 async def change_status_task():
@@ -468,24 +523,24 @@ async def change_status_task():
         if not bot.is_ready(): return
         statuses = []
         
-        # 1. 〇〇人|〇〇鯖
+        # 1. 〇〇人 | 〇〇鯖
         total_members = sum(g.member_count for g in bot.guilds if g.member_count)
         total_guilds = len(bot.guilds)
         statuses.append(discord.Activity(type=discord.ActivityType.watching, name=f"{total_members}人 | {total_guilds}鯖"))
         
-        # 2. Ping 〇〇ms
+        # 2. /start で建国！
+        statuses.append(discord.Activity(type=discord.ActivityType.playing, name="/start で今すぐ建国！"))
+
+        # 3. /command で簡単操作
+        statuses.append(discord.Activity(type=discord.ActivityType.playing, name="/command で超簡単操作！"))
+
+        # 4. Ping 〇〇ms
         ping = bot.latency * 1000
-        if math.isinf(ping) or math.isnan(ping) or ping < 0 or ping > 10000:
-            ping_str = "Error ms"
-        else:
-            ping_str = f"{int(ping)}ms"
+        ping_str = "Error ms" if (math.isinf(ping) or math.isnan(ping) or ping < 0 or ping > 10000) else f"{int(ping)}ms"
         statuses.append(discord.Activity(type=discord.ActivityType.watching, name=f"Ping {ping_str}"))
         
-        # 3. Powered by rds9
+        # 5. Powered by rds9
         statuses.append(discord.Activity(type=discord.ActivityType.watching, name="Powered by rds9"))
-        
-        # 4. 〇〇回のコマンド
-        statuses.append(discord.Activity(type=discord.ActivityType.watching, name=f"{bot.command_count}回のコマンド"))
         
         bot.status_index = (bot.status_index + 1) % len(statuses)
         await bot.change_presence(activity=statuses[bot.status_index])
@@ -604,31 +659,22 @@ async def on_guild_join(guild: discord.Guild):
             if ch.permissions_for(guild.me).send_messages: channel = ch; break
     if channel: 
         embed = discord.Embed(
-            title="全世界戦争Botへようこそ", 
-            description="導入ありがとうございます！\n\n**【管理者向け】**\n`/op setup` を実行して各設定コマンドを確認してください。\n\n**【全プレイヤー向け】**\nルール確認は `/help`、かんたん操作は `/command` を確認してください！", 
+            title="⚔️ 全世界戦争Botへようこそ！", 
+            description="導入ありがとうございます！世界の覇権をかけた領土争奪シミュレーションBotです。\n\n"
+                        "👑 **【管理者の方へ】**\n"
+                        "`/op_setup` を実行すると、ゲーム用カテゴリと専用チャンネル（世界1〜3）が一括自動作成されます！\n\n"
+                        "🎮 **【プレイヤーの方へ】**\n"
+                        "1️⃣ `/start` : 好きな国（日本やアメリカ等）を選んで今すぐ建国！\n"
+                        "2️⃣ `/command` : ボタン操作で労働・防衛・出撃がすべて完結！\n"
+                        "3️⃣ `/help` : 詳しい遊び方ガイドを確認できます。", 
             color=0x2ecc71
         )
         try: await channel.send(embed=embed)
         except: pass
 
-@tasks.loop(minutes=10)
-async def update_presence():
-    try:
-        total_members = sum(guild.member_count for guild in bot.guilds if guild.member_count)
-        activity = discord.Activity(
-            type=discord.ActivityType.watching, 
-            name=f"{total_members}人のプレイヤー"
-        )
-        await bot.change_presence(status=discord.Status.online, activity=activity)
-    except Exception as e:
-        logger.error(f"ステータス更新エラー: {e}")
-
 @bot.event
 async def on_ready():
     logger.info(f"稼働開始: {bot.user}")
-    # Botのログインが完了してからステータス更新タスクを開始する
-    if not update_presence.is_running():
-        update_presence.start()
 
 if __name__ == "__main__":
     if not BOT_TOKEN: print("[エラー] .envファイルに DISCORD_BOT_TOKEN が設定されていません。")
