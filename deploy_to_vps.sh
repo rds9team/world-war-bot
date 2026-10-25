@@ -15,7 +15,7 @@ echo "=== Uploading to VPS ==="
 scp -i "$SSH_KEY" -P "$VPS_PORT" "$ARCHIVE" "$VPS_USER@$VPS_HOST:/tmp/worldwarbot.tar.gz"
 
 echo "=== Deploying and restarting on VPS ==="
-ssh -i "$SSH_KEY" -P "$VPS_PORT" "$VPS_USER@$VPS_HOST" << 'REMOTE_SCRIPT'
+ssh -i "$SSH_KEY" -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" << 'REMOTE_SCRIPT'
 set -e
 mkdir -p /home/rds9/bots/worldwarbot
 cd /home/rds9/bots/worldwarbot
