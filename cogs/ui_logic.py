@@ -149,7 +149,7 @@ class DiplomacyUserSelect(discord.ui.UserSelect):
                 if is_ally: return await interaction.followup.send("[エラー] 同盟国には宣戦布告できません。", ephemeral=True)
                 view = discord.ui.View(timeout=86400)
                 btn_accept = discord.ui.Button(label="受諾する", style=discord.ButtonStyle.danger)
-                btn_reject = discord.ui.Button(label="拒否する", style=discord.ButtonStyle.success)
+                btn_reject = discord.ui.Button(label="拒否する", style=discord.ButtonStyle.secondary)
 
                 async def accept_callback(i: discord.Interaction):
                     if str(i.user.id) != target_id: return await i.response.send_message("[エラー] 権限がありません。", ephemeral=True)

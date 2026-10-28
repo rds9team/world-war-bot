@@ -34,9 +34,13 @@ TIPS_FILE = "tips.txt"
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 logger = logging.getLogger(__name__)
 
-SAY_LOG_DIR = os.path.expanduser("./world-war-bot/say_log")
-os.makedirs(SAY_LOG_DIR, exist_ok=True)
 os.makedirs(BACKUP_DIR, exist_ok=True)
+
+RESET_TARGET_TABLES = [
+    'players', 'territories', 'alliances', 'wars', 'un_members',
+    'un_invites', 'camps', 'camp_members', 'camp_invites',
+    'world_logs', 'unlocked_trophies', 'peace_treaties'
+]
 
 # ==============================================================================
 # 定数・辞書データ
@@ -320,9 +324,6 @@ async def generate_and_send_news(guild, channel):
             for w_id, text in logs:
                 if w_id not in world_events: world_events[w_id] = []
                 world_events[w_id].append(text)
-            
-            c.execute("DELETE FROM world_logs WHERE guild_id=?", (guild_id,))
-            conn.commit()
 
         for w_id, events in world_events.items():
             if not events: continue
@@ -338,7 +339,7 @@ async def generate_and_send_news(guild, channel):
 - キャッチーな見出し（大見出し）を含めること
 - 記者の視点から、世界の戦況や外交の動きをドラマチックに要約すること
 """
-            url = f"{GEMINI_BASE_URL}/v1beta/models/gemini-3.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
+            url = f"{GEMINI_BASE_URL}/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
             payload = {"contents": [{"parts": [{"text": prompt}]}]}
             headers = {"Content-Type": "application/json"}
             
@@ -358,6 +359,12 @@ async def generate_and_send_news(guild, channel):
             embed = discord.Embed(title=f"📰 World Times - 世界 #{w_id} 最新情勢", description=news_text, color=0x3498db)
             embed.set_footer(text="AI Reporter")
             await channel.send(embed=embed)
+
+            # 送信成功後に該当世界のログを削除
+            with get_db_connection() as conn:
+                c = conn.cursor()
+                c.execute("DELETE FROM world_logs WHERE guild_id=? AND world_id=?", (guild_id, w_id))
+                conn.commit()
     except Exception as e:
         logger.error(f"新聞生成エラー: {e}")
 
@@ -584,12 +591,16 @@ async def scheduled_tasks():
             c.execute("SELECT guild_id, reset_interval, last_reset_date FROM server_channels")
             for g_id, interval, last_date_str in c.fetchall():
                 if interval > 0:
+                    if not last_date_str:
+                        c.execute("UPDATE server_channels SET last_reset_date=? WHERE guild_id=?", (today_str, g_id))
+                        continue
                     try:
                         last_date = datetime.datetime.strptime(last_date_str, '%Y-%m-%d').replace(tzinfo=datetime.timezone.utc)
                         if (now_utc - last_date).days >= interval: reset_guilds.append(g_id)
-                    except: reset_guilds.append(g_id)
+                    except Exception:
+                        c.execute("UPDATE server_channels SET last_reset_date=? WHERE guild_id=?", (today_str, g_id))
             for g_id in reset_guilds:
-                for table in ['players', 'territories', 'alliances', 'wars', 'un_members', 'un_invites', 'camps', 'camp_members', 'camp_invites', 'world_logs', 'unlocked_trophies', 'peace_treaties']: 
+                for table in RESET_TARGET_TABLES: 
                     c.execute(f"DELETE FROM {table} WHERE guild_id=?", (g_id,))
                 c.execute("UPDATE server_channels SET last_reset_date=? WHERE guild_id=?", (today_str, g_id))
             conn.commit()

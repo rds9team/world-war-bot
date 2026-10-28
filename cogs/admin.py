@@ -2,7 +2,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from main import (
-    get_db_connection, safe_defer, is_slash_op_or_admin, ensure_world_context
+    get_db_connection, safe_defer, is_slash_op_or_admin, ensure_world_context,
+    RESET_TARGET_TABLES
 )
 
 class AdminCog(commands.Cog):
@@ -86,7 +87,7 @@ class AdminCog(commands.Cog):
         if world_id == 0: return
         with get_db_connection() as conn:
             c = conn.cursor()
-            for table in ['players', 'territories', 'alliances', 'wars', 'un_members', 'un_invites', 'camps', 'camp_members', 'camp_invites']:
+            for table in RESET_TARGET_TABLES:
                 c.execute(f"DELETE FROM {table} WHERE guild_id=? AND world_id=?", (str(interaction.guild_id), world_id))
             conn.commit()
         await interaction.followup.send(f"[完了] [世界#{world_id}] の全データを手動リセットしました。新たな歴史の始まりです。")
@@ -127,15 +128,19 @@ class AdminCog(commands.Cog):
             conn.commit()
         await interaction.followup.send(msg)
 
-    @app_commands.command(name="op_channel_setting", description="既存のチャンネルを各Worldに手動紐付けします")
+    @app_commands.command(name="op_channel_setting", description="特定のWorldに既存のチャンネルを手動で紐付けます")
+    @app_commands.choices(world=[app_commands.Choice(name="世界 #1", value=1), app_commands.Choice(name="世界 #2", value=2), app_commands.Choice(name="世界 #3", value=3)])
     @is_slash_op_or_admin()
-    async def cmd_channel_setting(self, interaction: discord.Interaction, world1: discord.TextChannel, world2: discord.TextChannel, world3: discord.TextChannel):
+    async def cmd_channel_setting(self, interaction: discord.Interaction, world: app_commands.Choice[int], channel: discord.TextChannel):
         await safe_defer(interaction)
+        guild_id = str(interaction.guild_id)
+        col = f"world{world.value}_ch"
         with get_db_connection() as conn:
             c = conn.cursor()
-            c.execute("INSERT OR REPLACE INTO server_channels (guild_id, world1_ch, world2_ch, world3_ch, notify_ch, notify_enabled) VALUES (?, ?, ?, ?, COALESCE((SELECT notify_ch FROM server_channels WHERE guild_id=?), ?), 1)", (str(interaction.guild_id), str(world1.id), str(world2.id), str(world3.id), str(interaction.guild_id), str(world1.id)))
+            c.execute("INSERT OR IGNORE INTO server_channels (guild_id) VALUES (?)", (guild_id,))
+            c.execute(f"UPDATE server_channels SET {col}=? WHERE guild_id=?", (str(channel.id), guild_id))
             conn.commit()
-        await interaction.followup.send("[完了] 各Worldの専用チャンネルを手動で設定しました。")
+        await interaction.followup.send(f"[設定] 世界 #{world.value} の専用チャンネルを {channel.mention} に設定しました。")
 
     @app_commands.command(name="op_reboot_setting", description="定時給付やワイプの通知先チャンネルとON/OFFを設定します")
     @app_commands.choices(mode=[app_commands.Choice(name="有効(ON)", value=1), app_commands.Choice(name="無効(OFF)", value=0)])
